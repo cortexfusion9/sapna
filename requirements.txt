@@ -1,0 +1,13 @@
+langchain 
+langgraph 
+langchain-openai 
+langchain-community 
+openai 
+chromadb 
+fastapi 
+uvicorn 
+python-dotenv 
+pydantic 
+tiktoken
+pypdf
+rapidfuzz
