@@ -1,8 +1,9 @@
-import streamlit as st
 import os, re, json, uuid
 import pandas as pd
 from datetime import datetime
-# from dotenv import load_dotenv   ← we remove this because Streamlit Cloud uses secrets
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from pydantic import BaseModel
 
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -10,18 +11,16 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-
 # =========================================================
-# ENV (Streamlit Cloud version)
+# ENV
 # =========================================================
+load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    st.error("OPENAI_API_KEY is missing! Please add it in Streamlit Cloud → Secrets")
-    st.stop()
-
+    raise RuntimeError("OPENAI_API_KEY missing")
 
 # =========================================================
-# CONFIG  (same as original)
+# CONFIG
 # =========================================================
 INTENT_XLSX = "Agent_Mapping_11.xlsx"
 GATE_KNOWLEDGE_XLSX = "gate_knowledge.xlsx"
@@ -31,14 +30,22 @@ INTENT_DB = "./chroma_intents"
 GATE_DB = "./chroma_gates"
 
 EMBEDDINGS = "text-embedding-3-large"
-MODEL = "gpt-5.2"   # use real model in prod
-
+MODEL = "gpt-4o-mini"
 
 # =========================================================
-# All your original functions - NO CHANGES HERE
+# APP
 # =========================================================
+app = FastAPI(title="StartHub SOP Agent")
 
-def normalize(t):
+# =========================================================
+# STATE (Render-safe single instance)
+# =========================================================
+SESSIONS = {}
+
+# =========================================================
+# UTILS
+# =========================================================
+def normalize(t: str):
     return re.sub(r"[^\w\s]", "", t.lower()).strip()
 
 def safe_json(t, default):
@@ -47,117 +54,95 @@ def safe_json(t, default):
     except:
         return default
 
+# =========================================================
+# LOAD DATA
+# =========================================================
 def load_intents():
     df = pd.read_excel(INTENT_XLSX)
     docs = []
-
     for _, r in df.iterrows():
         if pd.isna(r["SUPPORT AGENT ACTION FLOW"]):
             continue
-
-        content = f"""
+        docs.append(Document(
+            page_content=f"""
 INTENT:
 {r['Intent ID (input)']}
 
 REQUEST_VARIATIONS:
 {r['Request Variations']}
-"""
-
-        docs.append(
-            Document(
-                page_content=content.strip(),
-                metadata={
-                    "intent_id": str(r["Intent ID (input)"]),
-                    "gate_order": str(r["GATE ORDER"]),
-                    "action_flow": str(r["SUPPORT AGENT ACTION FLOW"])
-                }
-            )
-        )
+""".strip(),
+            metadata={
+                "intent_id": r["Intent ID (input)"],
+                "gate_order": r["GATE ORDER"],
+                "action_flow": r["SUPPORT AGENT ACTION FLOW"]
+            }
+        ))
     return docs
-
 
 def load_gate_knowledge():
     df = pd.read_excel(GATE_KNOWLEDGE_XLSX)
-    gates = {}
-
-    for _, r in df.iterrows():
-        gates[str(r["Gate Name"]).strip()] = {
-            "purpose": str(r["Purpose"]),
-            "do_not_ask": str(r["Notes / Do Not Ask"])
+    return {
+        r["Gate Name"]: {
+            "purpose": r["Purpose"],
+            "do_not_ask": r["Notes / Do Not Ask"]
         }
-    return gates
-
+        for _, r in df.iterrows()
+    }
 
 def load_gate_requirements():
     df = pd.read_excel(GATE_REQUIREMENTS_XLSX)
-
     gates = {}
-
     for _, r in df.iterrows():
-        gate = str(r["Gate Name"]).strip()
-
+        gate = r["Gate Name"]
         gates.setdefault(gate, {
             "rules": [],
-            "required_data": set()
+            "required_data": []
         })
 
-        content = f"""
-GATE: {gate}
-
+        gates[gate]["rules"].append(f"""
 SATISFACTION PATHS:
 {r['Satisfaction Paths']}
 
 SATISFIED WHEN:
 {r['Satisfied When']}
-"""
+""")
 
-        gates[gate]["rules"].append(
-            Document(
-                page_content=content.strip(),
-                metadata={"gate": gate}
+        if not pd.isna(r.get("Required Data")):
+            gates[gate]["required_data"].extend(
+                [x.strip() for x in str(r["Required Data"]).split(";")]
             )
-        )
-
-        if "Required Data" in r and not pd.isna(r["Required Data"]):
-            for field in str(r["Required Data"]).split(";"):
-                gates[gate]["required_data"].add(field.strip())
-
     return gates
 
-
-# Vector stores ────────────────────────────────────────────────
+# =========================================================
+# VECTOR STORES
+# =========================================================
 embeddings = OpenAIEmbeddings(model=EMBEDDINGS, api_key=OPENAI_API_KEY)
 
 intent_vs = Chroma.from_documents(load_intents(), embeddings, persist_directory=INTENT_DB)
 intent_retriever = intent_vs.as_retriever(search_kwargs={"k": 1})
 
 gate_requirements = load_gate_requirements()
-
 gate_docs = []
-for g in gate_requirements.values():
-    gate_docs.extend(g["rules"])
+for gate, g in gate_requirements.items():
+    for rule in g["rules"]:
+        gate_docs.append(Document(page_content=rule, metadata={"gate": gate}))
 
 gate_vs = Chroma.from_documents(gate_docs, embeddings, persist_directory=GATE_DB)
 gate_retriever = gate_vs.as_retriever(search_kwargs={"k": 1})
 
 gate_knowledge = load_gate_knowledge()
 
-
-def get_gate_rules(gate):
-    docs = gate_retriever.invoke(gate)
-    return docs[0].page_content if docs else "No rules found."
-
-def get_required_data(gate):
-    return sorted(gate_requirements.get(gate, {}).get("required_data", []))
-
+# =========================================================
+# LLM
+# =========================================================
 llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY, temperature=0)
 
-
+# =========================================================
+# PROMPTS
+# =========================================================
 ASK_PROMPT = PromptTemplate.from_template("""
-You are a professional customer support agent.
-
 GATE RULES:
-{gate_rules}
+{rules}
 
 Purpose:
 {purpose}
@@ -165,213 +150,145 @@ Purpose:
 Do NOT ask:
 {do_not_ask}
 
-Ask the single best question to satisfy the gate.
+Ask ONE best question.
 Return only the question.
 """)
 
 JUDGE_PROMPT = PromptTemplate.from_template("""
-You are a gate validation engine.
-
 GATE RULES:
-{gate_rules}
+{rules}
 
-User has provided:
-{collected}
+User provided:
+{input}
 
-Decide if the gate is satisfied.
-
-Return JSON only:
+Return JSON:
 {{"satisfied": true/false, "reason": "..."}}
 """)
 
+# =========================================================
+# HELPERS
+# =========================================================
+def get_gate_rules(gate):
+    docs = gate_retriever.invoke(gate)
+    return docs[0].page_content if docs else ""
 
 def ask_gate(gate):
     return (ASK_PROMPT | llm | StrOutputParser()).invoke({
-        "gate_rules": get_gate_rules(gate),
+        "rules": get_gate_rules(gate),
         "purpose": gate_knowledge[gate]["purpose"],
         "do_not_ask": gate_knowledge[gate]["do_not_ask"]
     })
 
-
-def judge_gate(gate, collected):
+def judge_gate(gate, text):
     raw = (JUDGE_PROMPT | llm | StrOutputParser()).invoke({
-        "gate_rules": get_gate_rules(gate),
-        "collected": collected
+        "rules": get_gate_rules(gate),
+        "input": text
     })
     return safe_json(raw, {"satisfied": False, "reason": "Unable to validate"})
 
-
-def resolve_intent(q):
-    docs = intent_retriever.invoke(q)
-    return docs[0] if docs else None
-
-
 # =========================================================
-#          STREAMLIT WRAPPER – minimal changes only
+# LOGGING
 # =========================================================
-
-st.set_page_config(page_title="StartHub SOP Agent", layout="wide")
-st.title("🧠 StartHub SOP Agent")
-st.caption("Exact same logic as console version – just with web chat interface")
-
-# Session state – we simulate the same variables
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "conversation_id" not in st.session_state:
-    st.session_state.conversation_id = str(uuid.uuid4())
-if "turn" not in st.session_state:
-    st.session_state.turn = 0
-if "last_user_message" not in st.session_state:
-    st.session_state.last_user_message = ""
-if "intent_doc" not in st.session_state:
-    st.session_state.intent_doc = None
-if "collected" not in st.session_state:
-    st.session_state.collected = {}
-if "gate_order" not in st.session_state:
-    st.session_state.gate_order = []
-if "processing_intent" not in st.session_state:
-    st.session_state.processing_intent = True   # like while not intent_doc
-
-
-# Show conversation history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-
-# User input
-if user_input := st.chat_input("User:"):
-    st.session_state.last_user_message = user_input.strip()
-    st.session_state.messages.append({"role": "user", "content": user_input})
-
-    with st.chat_message("user"):
-        st.markdown(user_input)
-
-    with st.chat_message("assistant"):
-        if st.session_state.processing_intent:
-            # === Intent detection phase ===
-            intent_doc = resolve_intent(normalize(user_input))
-            if not intent_doc:
-                response = "Agent: I couldn’t find the right process. Please rephrase."
-            else:
-                st.session_state.intent_doc = intent_doc
-                st.session_state.gate_order = [
-                    g.strip() for g in intent_doc.metadata["gate_order"].split(">") if g.strip()
-                ]
-                st.session_state.processing_intent = False
-
-                response = f"""
-[DEBUG] Intent: {intent_doc.metadata['intent_id']}
-[DEBUG] Gates: {" → ".join(st.session_state.gate_order)}
-                """
-
-                # Start first gate immediately
-                first_gate = st.session_state.gate_order[0]
-                st.session_state.collected.setdefault(first_gate, "")
-                q = ask_gate(first_gate)
-
-                response += f"""
-
-{"="*80}
-Current Gate: {first_gate}
-
-Data Read (expected):
-{chr(10).join(f"- {d}" for d in get_required_data(first_gate))}
-
-Agent Message to Customer:
-"{q}"
-{"="*80}
-                """
-
+def log_turn(**log):
+    print("\n==============================")
+    print("CONVERSATIONAL AGENT LOG (v1)")
+    print("==============================\n")
+    for k, v in log.items():
+        if isinstance(v, list):
+            print(f"{k}:")
+            for i in v:
+                print(f"- {i}")
         else:
-            # === Gate processing phase ===
-            current_gate = st.session_state.gate_order[0]  # we process one by one, remove when done
-            provided = st.session_state.collected[current_gate]
-            st.session_state.turn += 1
+            print(f"{k}: {v}")
+    print()
 
-            result = judge_gate(current_gate, provided)
+# =========================================================
+# API SCHEMAS
+# =========================================================
+class ChatRequest(BaseModel):
+    message: str
+    conversation_id: str | None = None
 
-            log = f"""
-{"="*80}
-Turn ID: {datetime.utcnow().isoformat()}
-Customer Message:
-"{st.session_state.last_user_message}"
+class ChatResponse(BaseModel):
+    conversation_id: str
+    agent_message: str
+    done: bool
+    log: dict
 
-Intent:
-- Selected: {st.session_state.intent_doc.metadata['intent_id']}
+# =========================================================
+# CHAT ENDPOINT
+# =========================================================
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    cid = req.conversation_id or str(uuid.uuid4())
+    user_msg = req.message
 
-Gate Order:
- → {" → ".join(st.session_state.gate_order)}
+    if cid not in SESSIONS:
+        intent_doc = intent_retriever.invoke(normalize(user_msg))[0]
+        gate_order = [g.strip() for g in intent_doc.metadata["gate_order"].split(">")]
 
-Current Gate:
-{current_gate}
+        SESSIONS[cid] = {
+            "intent": intent_doc,
+            "gate_order": gate_order,
+            "gate_idx": 0,
+            "collected": {g: "" for g in gate_order}
+        }
 
-Data Read (expected):
-{chr(10).join(f"- {d}" for d in get_required_data(current_gate))}
+    session = SESSIONS[cid]
+    gate = session["gate_order"][session["gate_idx"]]
+    prev = session["collected"][gate]
+    combined = (prev + " " + user_msg).strip()
 
-Collected Fields:
-- {current_gate}: "{provided.strip() or '—'}"
+    result = judge_gate(gate, combined)
+    required_data = gate_requirements[gate]["required_data"]
 
-Gate Evaluation Summary:
-{result["reason"]}
+    next_gate = (
+        session["gate_order"][session["gate_idx"] + 1]
+        if result["satisfied"] and session["gate_idx"] < len(session["gate_order"]) - 1
+        else None
+    )
 
-Gate Status:
-- {current_gate} → {'PASSED' if result['satisfied'] else 'PENDING'}
+    log = {
+        "Turn ID": datetime.utcnow().isoformat(),
+        "Conversation ID": cid,
+        "Customer Message": user_msg,
+        "Intent": session["intent"].metadata["intent_id"],
+        "Gate Order": session["gate_order"],
+        "Current Gate": gate,
+        "Data Read (expected)": required_data,
+        "Collected Fields": {gate: combined if result["satisfied"] else prev},
+        "Gate Evaluation Summary": result["reason"],
+        "Gate Status": "PASSED" if result["satisfied"] else "PENDING",
+        "Next Gate": next_gate,
+    }
 
-Agent Decision:
-- Action: {"EXECUTED" if result["satisfied"] else "REQUESTED_MORE_INFORMATION"}
-{"="*80}
-"""
+    if result["satisfied"]:
+        session["collected"][gate] = combined
+        session["gate_idx"] += 1
 
-            if result["satisfied"]:
-                st.session_state.collected[current_gate] = (provided + " " + user_input).strip()
-                st.session_state.gate_order.pop(0)  # remove completed gate
+        if session["gate_idx"] >= len(session["gate_order"]):
+            log["Agent Decision"] = "EXECUTED_ACTION"
+            log_turn(**log)
+            return ChatResponse(
+                conversation_id=cid,
+                agent_message="✅ All gates satisfied. Request executed.",
+                done=True,
+                log=log
+            )
 
-                if not st.session_state.gate_order:
-                    # All gates completed
-                    summary = "\n".join(f"- {g}: \"{v.strip()}\"" for g,v in st.session_state.collected.items())
-                    action = st.session_state.intent_doc.metadata["action_flow"]
+    question = ask_gate(gate)
+    log["Agent Decision"] = "REQUESTED_MORE_INFORMATION"
+    log["Agent Message"] = question
 
-                    log += f"""
-{"═"*80}
-✅ All gates satisfied
+    log_turn(**log)
 
-Collected Information Summary:
-{summary}
+    return ChatResponse(
+        conversation_id=cid,
+        agent_message=question,
+        done=False,
+        log=log
+    )
 
-🛠 SUPPORT AGENT ACTION FLOW:
-
-{action}
-{"═"*80}
-"""
-                    response = log
-                else:
-                    # Move to next gate
-                    next_gate = st.session_state.gate_order[0]
-                    st.session_state.collected.setdefault(next_gate, "")
-                    q = ask_gate(next_gate)
-
-                    response = log + f"""
-Next Gate: {next_gate}
-
-Agent Message to Customer:
-"{q}"
-{"="*80}
-"""
-            else:
-                q = ask_gate(current_gate)
-                response = log + f"""
-Agent Message to Customer:
-"{q}"
-{"="*80}
-"""
-
-        st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-
-# Reset button
-st.sidebar.title("Controls")
-if st.sidebar.button("Start New Conversation"):
-    st.session_state.clear()
-    st.rerun()
+@app.get("/health")
+def health():
+    return {"status": "ok"}
