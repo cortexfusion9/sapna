@@ -30,7 +30,7 @@ INTENT_DB = "./chroma_intents"
 GATE_DB = "./chroma_gates"
 
 EMBEDDINGS = "text-embedding-3-large"
-MODEL = "gpt-4o-mini"
+MODEL = "gpt-5.2"
 
 # =========================================================
 # APP
@@ -292,3 +292,4 @@ def chat(req: ChatRequest):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
