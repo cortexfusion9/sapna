@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from fastapi.middleware.cors import CORSMiddleware
 
 # =========================================================
 # ENV
@@ -37,6 +38,13 @@ MODEL = "gpt-5.2"
 # =========================================================
 app = FastAPI(title="StartHub SOP Agent")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or restrict to your static site URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # =========================================================
 # STATE (Render-safe single instance)
 # =========================================================
@@ -292,4 +300,5 @@ def chat(req: ChatRequest):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
