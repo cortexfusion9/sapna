@@ -31,24 +31,19 @@ INTENT_DB = "./chroma_intents"
 GATE_DB = "./chroma_gates"
 
 EMBEDDINGS = "text-embedding-3-large"
-MODEL = "gpt-5.2"
+MODEL = "gpt-4o-mini"  # ⚠️ use real model
 
 # =========================================================
 # APP
 # =========================================================
 app = FastAPI(title="StartHub SOP Agent")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# =========================================================
-# STATE
-# =========================================================
 SESSIONS = {}
 
 # =========================================================
@@ -64,193 +59,118 @@ def safe_json(t, default):
         return default
 
 # =========================================================
-# LOAD INTENTS
+# LOAD DATA
 # =========================================================
 def load_intents():
     df = pd.read_excel(INTENT_XLSX)
     docs = []
     for _, r in df.iterrows():
-        if pd.isna(r["SUPPORT AGENT ACTION FLOW"]):
-            continue
         docs.append(Document(
             page_content=f"""
 INTENT:
 {r['Intent ID (input)']}
-
 REQUEST_VARIATIONS:
 {r['Request Variations']}
 """.strip(),
             metadata={
                 "intent_id": r["Intent ID (input)"],
                 "gate_order": r["GATE ORDER"],
-                "action_flow": r["SUPPORT AGENT ACTION FLOW"]
             }
         ))
     return docs
 
-# =========================================================
-# LOAD GATE KNOWLEDGE
-# =========================================================
 def load_gate_knowledge():
     df = pd.read_excel(GATE_KNOWLEDGE_XLSX)
     return {
         r["Gate Name"]: {
             "purpose": r["Purpose"],
             "do_not_ask": r["Notes / Do Not Ask"]
-        }
-        for _, r in df.iterrows()
+        } for _, r in df.iterrows()
     }
 
-# =========================================================
-# LOAD GATE REQUIREMENTS (PATH-AWARE)
-# =========================================================
 def load_gate_requirements():
     df = pd.read_excel(GATE_REQUIREMENTS_XLSX)
     gates = {}
 
     for _, r in df.iterrows():
         gate = r["Gate Name"]
+        gates.setdefault(gate, [])
 
-        gates.setdefault(gate, {
-            "paths": [],
-            "required_data": []
-        })
-
-        # ---- Parse Satisfaction Paths ----
-        raw_paths = str(r["Satisfaction Paths"]).strip()
-        for line in raw_paths.split("\n"):
+        for line in str(r["Satisfaction Paths"]).split("\n"):
             if ":" not in line:
                 continue
-
             label, desc = line.split(":", 1)
-
-            gates[gate]["paths"].append({
+            gates[gate].append({
                 "path": label.strip(),
                 "description": desc.strip(),
-                "satisfied_when": str(r["Satisfied When"]).strip(),
-                "interpretation": str(
-                    r.get("Normalization / Interpretation Rules", "")
-                ).strip()
+                "satisfied_when": r["Satisfied When"],
+                "interpretation": r.get("Normalization / Interpretation Rules", "")
             })
-
-        if not pd.isna(r.get("Required Data")):
-            gates[gate]["required_data"].extend(
-                [x.strip() for x in str(r["Required Data"]).split(";")]
-            )
-
     return gates
 
 # =========================================================
 # VECTOR STORES
 # =========================================================
-embeddings = OpenAIEmbeddings(model=EMBEDDINGS, api_key=OPENAI_API_KEY)
+embeddings = OpenAIEmbeddings(model=EMBEDDINGS)
 
 intent_vs = Chroma.from_documents(load_intents(), embeddings, persist_directory=INTENT_DB)
-intent_retriever = intent_vs.as_retriever(search_kwargs={"k": 1})
+intent_retriever = intent_vs.as_retriever(k=1)
 
 gate_requirements = load_gate_requirements()
-gate_docs = []
-
-for gate, g in gate_requirements.items():
-    for p in g["paths"]:
-        gate_docs.append(
-            Document(
-                page_content=f"""
-PATH: {p['path']}
-DESCRIPTION: {p['description']}
-""".strip(),
-                metadata={"gate": gate}
-            )
-        )
-
-gate_vs = Chroma.from_documents(gate_docs, embeddings, persist_directory=GATE_DB)
-gate_retriever = gate_vs.as_retriever(search_kwargs={"k": 1})
-
 gate_knowledge = load_gate_knowledge()
 
 # =========================================================
 # LLM
 # =========================================================
-llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY, temperature=0)
+llm = ChatOpenAI(model=MODEL, temperature=0)
 
 # =========================================================
 # PROMPTS
 # =========================================================
 ASK_PROMPT = PromptTemplate.from_template("""
-You are a professional customer support agent.
-
 ACTIVE PATH:
-{path_description}
+{path}
 
 Purpose:
 {purpose}
 
-Do NOT ask:
-{do_not_ask}
-
-Ask ONE best question to satisfy THIS path.
-Return only the question.
+Ask ONE question to satisfy this path.
 """)
 
 JUDGE_PROMPT = PromptTemplate.from_template("""
-PATH DESCRIPTION:
-{path_description}
+PATH:
+{path}
 
 SATISFIED WHEN:
 {satisfied_when}
 
-INTERPRETATION RULES:
+INTERPRETATION:
 {interpretation}
 
-USER INPUT:
+INPUT:
 {input}
 
 Return JSON:
 {{"satisfied": true/false, "reason": "..."}}
 """)
 
-PATH_SELECT_PROMPT = PromptTemplate.from_template("""
-User message:
-{input}
-
-Available paths:
-{paths}
-
-Select the most relevant path.
-Return JSON only:
-{{"path": "Path A"}}
-""")
-
 # =========================================================
 # HELPERS
 # =========================================================
-def select_path(gate, user_input):
-    paths = gate_requirements[gate]["paths"]
-    raw = (PATH_SELECT_PROMPT | llm | StrOutputParser()).invoke({
-        "input": user_input,
-        "paths": json.dumps(paths, indent=2)
+def ask_for_path(gate, path):
+    return (ASK_PROMPT | llm | StrOutputParser()).invoke({
+        "path": path["description"],
+        "purpose": gate_knowledge[gate]["purpose"]
     })
-    parsed = safe_json(raw, {})
-    for i, p in enumerate(paths):
-        if p["path"] == parsed.get("path"):
-            return i
-    return 0
 
 def judge_path(path, text):
     raw = (JUDGE_PROMPT | llm | StrOutputParser()).invoke({
-        "path_description": path["description"],
+        "path": path["description"],
         "satisfied_when": path["satisfied_when"],
         "interpretation": path["interpretation"],
         "input": text
     })
-    return safe_json(raw, {"satisfied": False, "reason": "Unable to validate"})
-
-def ask_for_path(gate, path):
-    return (ASK_PROMPT | llm | StrOutputParser()).invoke({
-        "path_description": path["description"],
-        "purpose": gate_knowledge[gate]["purpose"],
-        "do_not_ask": gate_knowledge[gate]["do_not_ask"]
-    })
+    return safe_json(raw, {"satisfied": False})
 
 # =========================================================
 # LOGGING
@@ -264,7 +184,7 @@ def log_turn(log):
     print()
 
 # =========================================================
-# API SCHEMAS
+# API
 # =========================================================
 class ChatRequest(BaseModel):
     message: str
@@ -276,88 +196,62 @@ class ChatResponse(BaseModel):
     done: bool
     log: dict
 
-# =========================================================
-# CHAT ENDPOINT
-# =========================================================
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     cid = req.conversation_id or str(uuid.uuid4())
-    user_msg = req.message
 
     if cid not in SESSIONS:
-        intent = intent_retriever.invoke(normalize(user_msg))[0]
-        gate_order = [g.strip() for g in intent.metadata["gate_order"].split(">")]
-
+        intent = intent_retriever.invoke(normalize(req.message))[0]
+        gate_order = intent.metadata["gate_order"].split(">")
         SESSIONS[cid] = {
-            "intent": intent,
+            "intent": intent.metadata["intent_id"],
             "gate_order": gate_order,
             "gate_idx": 0,
-            "path_idx": None,
+            "path_idx": 0,
+            "path_asked": False,
             "collected": {g: "" for g in gate_order}
         }
 
-    session = SESSIONS[cid]
-    gate = session["gate_order"][session["gate_idx"]]
-
-    if session["path_idx"] is None:
-        session["path_idx"] = select_path(gate, user_msg)
-
-    path = gate_requirements[gate]["paths"][session["path_idx"]]
-    combined = (session["collected"][gate] + " " + user_msg).strip()
-
-    result = judge_path(path, combined)
+    s = SESSIONS[cid]
+    gate = s["gate_order"][s["gate_idx"]]
+    paths = gate_requirements[gate]
+    path = paths[s["path_idx"]]
 
     log = {
         "Turn ID": datetime.utcnow().isoformat(),
-        "Conversation ID": cid,
-        "Customer Message": user_msg,
-        "Intent": session["intent"].metadata["intent_id"],
-        "Current Gate": gate,
-        "Current Path": path["path"],
-        "Path Description": path["description"],
-        "Gate Status": "PASSED" if result["satisfied"] else "FAILED",
-        "Evaluation Reason": result["reason"]
+        "Gate": gate,
+        "Path": path["path"],
+        "Customer Message": req.message
     }
 
+    if not s["path_asked"]:
+        q = ask_for_path(gate, path)
+        s["path_asked"] = True
+        log["Decision"] = "ASK"
+        log_turn(log)
+        return ChatResponse(cid, q, False, log)
+
+    combined = s["collected"][gate] + " " + req.message
+    result = judge_path(path, combined)
+
     if result["satisfied"]:
-        session["collected"][gate] = combined
-        session["gate_idx"] += 1
-        session["path_idx"] = None
-
-        if session["gate_idx"] >= len(session["gate_order"]):
-            log["Agent Decision"] = "EXECUTED_ACTION"
-            log_turn(log)
-            return ChatResponse(
-                conversation_id=cid,
-                agent_message="✅ All gates satisfied. Request executed.",
-                done=True,
-                log=log
-            )
-
+        s["collected"][gate] = combined
+        s["gate_idx"] += 1
+        s["path_idx"] = 0
+        s["path_asked"] = False
+        log["Decision"] = "PATH_SATISFIED"
     else:
-        session["path_idx"] += 1
-        if session["path_idx"] >= len(gate_requirements[gate]["paths"]):
-            log["Agent Decision"] = "ESCALATION_REQUIRED"
-            log_turn(log)
-            return ChatResponse(
-                conversation_id=cid,
-                agent_message="I’m unable to identify the correct item. A support agent will review this.",
-                done=True,
-                log=log
-            )
+        s["path_idx"] += 1
+        s["path_asked"] = False
+        log["Decision"] = "NEXT_PATH"
 
-    question = ask_for_path(gate, gate_requirements[gate]["paths"][session["path_idx"]])
-    log["Agent Decision"] = "REQUESTED_MORE_INFORMATION"
-    log["Agent Message"] = question
+        if s["path_idx"] >= len(paths):
+            log["Decision"] = "ESCALATE"
+            log_turn(log)
+            return ChatResponse(cid, "I’m unable to identify the correct item. A support agent will review this.", True, log)
 
     log_turn(log)
-
-    return ChatResponse(
-        conversation_id=cid,
-        agent_message=question,
-        done=False,
-        log=log
-    )
+    return ChatResponse(cid, ask_for_path(gate, paths[s["path_idx"]]), False, log)
 
 @app.get("/health")
 def health():
