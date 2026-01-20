@@ -229,7 +229,10 @@ def chat(req: ChatRequest):
         s["path_asked"] = True
         log["Decision"] = "ASK"
         log_turn(log)
-        return ChatResponse(cid, q, False, log)
+        return ChatResponse(conversation_id = cid, 
+                            agent_message=q, 
+                            done=False, 
+                            log=log)
 
     combined = s["collected"][gate] + " " + req.message
     result = judge_path(path, combined)
@@ -248,7 +251,10 @@ def chat(req: ChatRequest):
         if s["path_idx"] >= len(paths):
             log["Decision"] = "ESCALATE"
             log_turn(log)
-            return ChatResponse(cid, "I’m unable to identify the correct item. A support agent will review this.", True, log)
+            return ChatResponse(conversation_id =cid, 
+                                agent_message ="I’m unable to identify the correct item. A support agent will review this.", 
+                                done=True, 
+                                log=log)
 
     log_turn(log)
     return ChatResponse(cid, ask_for_path(gate, paths[s["path_idx"]]), False, log)
@@ -256,3 +262,4 @@ def chat(req: ChatRequest):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
