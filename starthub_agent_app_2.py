@@ -4,13 +4,14 @@ from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
+from difflib import get_close_matches
 
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from fastapi.middleware.cors import CORSMiddleware
 
 # =========================================================
 # ENV
@@ -41,29 +42,35 @@ app = FastAPI(title="StartHub SOP Agent")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# =========================================================
-# STATE
-# =========================================================
 SESSIONS = {}
 
 # =========================================================
 # UTILS
 # =========================================================
-def normalize(t: str):
-    return re.sub(r"[^\w\s]", "", t.lower()).strip()
+def normalize(text: str) -> str:
+    return re.sub(r"[^\w\s]", "", text.lower()).strip()
 
-def safe_json(t, default):
+def fuzzy_normalize(value: str, vocabulary: list[str]) -> str:
+    """Fix misspellings using fuzzy match"""
+    matches = get_close_matches(value.lower(), vocabulary, n=1, cutoff=0.8)
+    return matches[0] if matches else value
+
+def safe_json(txt, default):
     try:
-        return json.loads(t)
+        return json.loads(txt)
     except:
         return default
 
+def is_unknown_response(text: str) -> bool:
+    return normalize(text) in {"dont know", "i dont know", "no idea", "unknown"}
+
 # =========================================================
-# LOAD INTENTS
+# LOAD DATA
 # =========================================================
 def load_intents():
     df = pd.read_excel(INTENT_XLSX)
@@ -78,7 +85,7 @@ INTENT:
 
 REQUEST_VARIATIONS:
 {r['Request Variations']}
-""".strip(),
+""",
             metadata={
                 "intent_id": r["Intent ID (input)"],
                 "gate_order": r["GATE ORDER"],
@@ -87,9 +94,6 @@ REQUEST_VARIATIONS:
         ))
     return docs
 
-# =========================================================
-# LOAD GATE KNOWLEDGE
-# =========================================================
 def load_gate_knowledge():
     df = pd.read_excel(GATE_KNOWLEDGE_XLSX)
     return {
@@ -100,31 +104,18 @@ def load_gate_knowledge():
         for _, r in df.iterrows()
     }
 
-# =========================================================
-# LOAD GATE REQUIREMENTS (PATH-AWARE)
-# =========================================================
 def load_gate_requirements():
     df = pd.read_excel(GATE_REQUIREMENTS_XLSX)
     gates = {}
-
     for _, r in df.iterrows():
-        gate = str(r["Gate Name"]).strip()
-        gates.setdefault(gate, {
-            "paths": [],
-            "required_data": []
+        gate = r["Gate Name"]
+        gates.setdefault(gate, [])
+        gates[gate].append({
+            "path": r["Satisfaction Paths"],
+            "satisfied_when": r["Satisfied When"],
+            "interpretation": r.get("Normalization / Interpretation Rules", ""),
+            "question": r.get("Follow-up Question Templates", "")
         })
-
-        gates[gate]["paths"].append({
-            "path": str(r["Satisfaction Paths"]).strip(),
-            "satisfied_when": str(r["Satisfied When"]).strip(),
-            "interpretation": str(r.get("Normalization / Interpretation Rules", "")).strip()
-        })
-
-        if not pd.isna(r.get("Required Data")):
-            gates[gate]["required_data"].extend(
-                [x.strip() for x in str(r["Required Data"]).split(";")]
-            )
-
     return gates
 
 # =========================================================
@@ -136,12 +127,20 @@ intent_vs = Chroma.from_documents(load_intents(), embeddings, persist_directory=
 intent_retriever = intent_vs.as_retriever(search_kwargs={"k": 1})
 
 gate_requirements = load_gate_requirements()
-
 gate_docs = []
-for gate, g in gate_requirements.items():
-    for p in g["paths"]:
+for gate, rules in gate_requirements.items():
+    for r in rules:
         gate_docs.append(Document(
-            page_content=p["path"],
+            page_content=f"""
+PATH:
+{r['path']}
+
+SATISFIED WHEN:
+{r['satisfied_when']}
+
+INTERPRETATION RULES:
+{r['interpretation']}
+""",
             metadata={"gate": gate}
         ))
 
@@ -158,87 +157,48 @@ llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY, temperature=0)
 # =========================================================
 # PROMPTS
 # =========================================================
-PATH_SELECT_PROMPT = PromptTemplate.from_template("""
-Select the best satisfaction path.
+ASK_PROMPT = PromptTemplate.from_template("""
+You are a customer support agent.
 
-Gate: {gate}
+CURRENT PATH:
+{path}
 
-Paths:
-{paths}
+Purpose:
+{purpose}
 
-User Input:
-{input}
-
-Return JSON only:
-{{"path_index": number}}
+Ask the BEST question for this path.
+Return only the question.
 """)
 
-PATH_JUDGE_PROMPT = PromptTemplate.from_template("""
-Satisfied When:
+JUDGE_PROMPT = PromptTemplate.from_template("""
+SATISFIED WHEN:
 {rule}
 
-User Provided:
+User input:
 {input}
 
 Return JSON:
 {{"satisfied": true/false, "reason": "..."}}
 """)
 
-ASK_PROMPT = PromptTemplate.from_template("""
-Purpose:
-{purpose}
-
-Do NOT ask:
-{do_not_ask}
-
-Ask the best single question.
-Return only the question.
-""")
-
 # =========================================================
-# GATE ENGINE (PATH-AWARE)
+# PATH ENGINE
 # =========================================================
-def select_path(gate, user_input):
-    paths = gate_requirements[gate]["paths"]
-    path_text = "\n".join(f"{i}. {p['path']}" for i, p in enumerate(paths))
+def judge_path(rule, user_input):
+    if is_unknown_response(user_input):
+        return {"satisfied": False, "reason": "User explicitly does not know → move to next path"}
 
-    raw = (PATH_SELECT_PROMPT | llm | StrOutputParser()).invoke({
-        "gate": gate,
-        "paths": path_text,
-        "input": user_input
-    })
-
-    idx = safe_json(raw, {"path_index": 0})["path_index"]
-    return min(idx, len(paths) - 1)
-
-def judge_path(path_rule, user_input):
-    raw = (PATH_JUDGE_PROMPT | llm | StrOutputParser()).invoke({
-        "rule": path_rule["satisfied_when"],
+    raw = (JUDGE_PROMPT | llm | StrOutputParser()).invoke({
+        "rule": rule["satisfied_when"],
         "input": user_input
     })
     return safe_json(raw, {"satisfied": False, "reason": "Unable to validate"})
 
-def ask_gate(gate):
+def ask_path(gate, rule):
     return (ASK_PROMPT | llm | StrOutputParser()).invoke({
-        "purpose": gate_knowledge[gate]["purpose"],
-        "do_not_ask": gate_knowledge[gate]["do_not_ask"]
+        "path": rule["path"],
+        "purpose": gate_knowledge[gate]["purpose"]
     })
-
-# =========================================================
-# LOGGING
-# =========================================================
-def log_turn(log):
-    print("\n==============================")
-    print("CONVERSATIONAL AGENT LOG (v1)")
-    print("==============================\n")
-    for k, v in log.items():
-        if isinstance(v, list):
-            print(f"{k}:")
-            for i in v:
-                print(f"- {i}")
-        else:
-            print(f"{k}: {v}")
-    print()
 
 # =========================================================
 # API SCHEMAS
@@ -269,73 +229,63 @@ def chat(req: ChatRequest):
             "intent": intent_doc,
             "gate_order": gate_order,
             "gate_idx": 0,
+            "path_idx": {g: 0 for g in gate_order},
             "collected": {g: "" for g in gate_order}
         }
 
-    session = SESSIONS[cid]
-    gate = session["gate_order"][session["gate_idx"]]
-    prev = session["collected"][gate]
-    combined = (prev + " " + user_msg).strip()
+    s = SESSIONS[cid]
+    gate = s["gate_order"][s["gate_idx"]]
+    path_idx = s["path_idx"][gate]
+    paths = gate_requirements[gate]
 
-    paths = gate_requirements[gate]["paths"]
-    path_idx = select_path(gate, combined)
+    # If paths exhausted → fail safe
+    if path_idx >= len(paths):
+        s["gate_idx"] += 1
+        return ChatResponse(
+            conversation_id=cid,
+            agent_message="I’ll proceed with the request using available information.",
+            done=False,
+            log={"Gate": gate, "Path": "EXHAUSTED"}
+        )
 
-    satisfied = False
-    reason = ""
-    question = None
-
-    while path_idx < len(paths):
-        result = judge_path(paths[path_idx], combined)
-        reason = result["reason"]
-
-        if result["satisfied"]:
-            satisfied = True
-            break
-
-        if "next path" in paths[path_idx]["interpretation"].lower():
-            path_idx += 1
-            continue
-
-        question = ask_gate(gate)
-        break
+    rule = paths[path_idx]
+    combined = (s["collected"][gate] + " " + user_msg).strip()
+    result = judge_path(rule, combined)
 
     log = {
         "Turn ID": datetime.utcnow().isoformat(),
         "Conversation ID": cid,
-        "Customer Message": user_msg,
-        "Intent": session["intent"].metadata["intent_id"],
-        "Gate Order": session["gate_order"],
-        "Current Gate": gate,
-        "Data Read (expected)": gate_requirements[gate]["required_data"],
-        "Collected Fields": {gate: combined if satisfied else prev},
-        "Gate Evaluation Summary": reason,
-        "Gate Status": "PASSED" if satisfied else "PENDING"
+        "Intent": s["intent"].metadata["intent_id"],
+        "Gate": gate,
+        "Path Attempted": rule["path"],
+        "Path Index": path_idx,
+        "Collected": combined,
+        "Path Result": "PASSED" if result["satisfied"] else "FAILED",
+        "Reason": result["reason"]
     }
 
-    if satisfied:
-        session["collected"][gate] = combined
-        session["gate_idx"] += 1
+    if result["satisfied"]:
+        s["collected"][gate] = combined
+        s["gate_idx"] += 1
+        log["Decision"] = "GATE_PASSED"
+        return ChatResponse(
+            conversation_id=cid,
+            agent_message="✅ Information confirmed.",
+            done=s["gate_idx"] >= len(s["gate_order"]),
+            log=log
+        )
 
-        if session["gate_idx"] >= len(session["gate_order"]):
-            log["Agent Decision"] = "EXECUTED_ACTION"
-            log_turn(log)
-            return ChatResponse(
-                conversation_id=cid,
-                agent_message="✅ All gates satisfied. Request executed.",
-                done=True,
-                log=log
-            )
+    # Path failed → move to NEXT PATH
+    s["path_idx"][gate] += 1
+    next_question = ask_path(gate, paths[s["path_idx"][gate]]) \
+        if s["path_idx"][gate] < len(paths) else \
+        "I will proceed with the request."
 
-    if not question:
-        question = ask_gate(gate)
-
-    log["Agent Decision"] = "REQUESTED_MORE_INFORMATION"
-    log["Agent Message"] = question
-    log_turn(log)
+    log["Decision"] = "MOVE_TO_NEXT_PATH"
 
     return ChatResponse(
         conversation_id=cid,
-        agent_message=question,
+        agent_message=next_question,
         done=False,
         log=log
     )
