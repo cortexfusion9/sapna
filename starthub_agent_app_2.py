@@ -256,10 +256,18 @@ def chat(req: ChatRequest):
                                 done=True, 
                                 log=log)
 
+    question = ask_for_path(gate, paths[s["path_idx"]])
+    log["Agent Decision"] = "Requested more information"
+    log["Agent Message"] = question
+    
     log_turn(log)
-    return ChatResponse(cid, ask_for_path(gate, paths[s["path_idx"]]), False, log)
+    return ChatResponse(conversation_id = cid, 
+                        agent_message = question,
+                        done = False,
+                        log = log)
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
