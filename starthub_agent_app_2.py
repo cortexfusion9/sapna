@@ -348,6 +348,68 @@ def chat(req: ChatRequest):
             )
 
         next_gate = s["gate_order"][s["gate_idx"]]
+        # Smart path selection for next gate
+        next_path_idx = select_path(next_gate, user_msg)
+        s["path_idx"] = next_path_idx
+        next_path = gate_requirements[next_gate]["paths"][next_path_idx]
+        next_q = ask_for_path(next_gate, next_path)
+        s["path_asked"] = True
+
+        return ChatResponse(
+            conversation_id=cid,
+            agent_message=next_q,
+            done=False,
+            log=log
+        )
+
+    # Current path not satisfied, try next path in same gate
+    s["path_idx"] += 1
+    s["path_asked"] = False
+
+    log["Decision"] = "PATH_NOT_SATISFIED_TRY_NEXT"
+    log["Reason"] = result["reason"]
+    log_turn(log)
+
+    # Check if we've exhausted all paths for this gate
+    if s["path_idx"] >= len(gate_requirements[gate]["paths"]):
+        return ChatResponse(
+            conversation_id=cid,
+            agent_message="I'm unable to identify the correct item. A support agent will review this.",
+            done=True,
+            log=log
+        )
+
+    # Ask question for next path in same gate
+    next_path = gate_requirements[gate]["paths"][s["path_idx"]]
+    next_q = ask_for_path(gate, next_path)
+    s["path_asked"] = True
+
+    return ChatResponse(
+        conversation_id=cid,
+        agent_message=next_q,
+        done=False,
+        log=log
+    )
+
+    if result["satisfied"]:
+        s["collected"][gate] = combined
+        s["gate_idx"] += 1
+        s["path_idx"] = None
+        s["path_asked"] = False
+
+        log["Decision"] = "GATE_PASSED"
+        log["Reason"] = result["reason"]
+        log_turn(log)
+
+        if s["gate_idx"] >= len(s["gate_order"]):
+            return ChatResponse(
+                conversation_id=cid,
+                agent_message="✅ All gates satisfied. Request executed.",
+                done=True,
+                log=log
+            )
+
+        next_gate = s["gate_order"][s["gate_idx"]]
         next_q = ask_for_path(next_gate, gate_requirements[next_gate]["paths"][0])
 
         return ChatResponse(
