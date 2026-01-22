@@ -102,7 +102,8 @@ def load_gate_knowledge():
     return {
         r["Gate Name"]: {
             "purpose": r["Purpose"],
-            "do_not_ask": r["Notes / Do Not Ask"]
+            "do_not_ask": r["Notes / Do Not Ask"],
+            "question_template": r.get("Question Template", "")
         }
         for _, r in df.iterrows()
     }
@@ -193,17 +194,22 @@ Return JSON only:
 """)
 
 ASK_PROMPT = PromptTemplate.from_template("""
-ACTIVE PATH:
+You are a helpful customer support agent helping a user scan and upload their mail.
+
+WHAT YOU'RE TRYING TO IDENTIFY:
 {path_description}
 
-Purpose:
+PURPOSE:
 {purpose}
 
-Do NOT ask:
-{do_not_ask}
+GUIDELINES:
+- Ask ONE simple, clear question
+- Use everyday language, not technical terms
+- Be conversational and friendly
+- Make it easy for the user to answer
+- Do NOT ask: {do_not_ask}
 
-Ask ONE best question to satisfy this path.
-Return only the question.
+Ask a natural, helpful question to identify this information:
 """)
 
 JUDGE_PROMPT = PromptTemplate.from_template("""
@@ -247,10 +253,19 @@ def judge_path(path, text):
     return safe_json(raw, {"satisfied": False, "reason": "Unable to validate"})
 
 def ask_for_path(gate, path):
+    # Check if there's a pre-written question template for this gate
+    gate_info = gate_knowledge.get(gate, {})
+    question_template = gate_info.get("question_template", "")
+    
+    # If we have a pre-written template, use it
+    if question_template and question_template.strip() and question_template != "nan":
+        return question_template.strip()
+    
+    # Otherwise, generate a question using the LLM
     return (ASK_PROMPT | llm | StrOutputParser()).invoke({
         "path_description": path["description"],
-        "purpose": gate_knowledge[gate]["purpose"],
-        "do_not_ask": gate_knowledge[gate]["do_not_ask"]
+        "purpose": gate_info.get("purpose", ""),
+        "do_not_ask": gate_info.get("do_not_ask", "")
     })
 
 # =========================================================
@@ -295,6 +310,7 @@ def chat(req: ChatRequest):
             "gate_idx": 0,
             "path_idx": None,
             "path_asked": False,
+            "tried_paths": set(),  # Track which paths have been tried
             "collected": {g: "" for g in gate_order}
         }
 
@@ -303,6 +319,7 @@ def chat(req: ChatRequest):
 
     if s["path_idx"] is None:
         s["path_idx"] = select_path(gate, user_msg)
+        s["tried_paths"].add(s["path_idx"])  # Mark initial path as tried
 
     path = gate_requirements[gate]["paths"][s["path_idx"]]
     combined = (s["collected"][gate] + " " + user_msg).strip()
@@ -334,6 +351,7 @@ def chat(req: ChatRequest):
         s["gate_idx"] += 1
         s["path_idx"] = None
         s["path_asked"] = False
+        s["tried_paths"] = set()  # Reset tried paths for next gate
 
         log["Decision"] = "GATE_PASSED"
         log["Reason"] = result["reason"]
@@ -351,6 +369,7 @@ def chat(req: ChatRequest):
         # Smart path selection for next gate
         next_path_idx = select_path(next_gate, user_msg)
         s["path_idx"] = next_path_idx
+        s["tried_paths"].add(next_path_idx)  # Mark as tried
         next_path = gate_requirements[next_gate]["paths"][next_path_idx]
         next_q = ask_for_path(next_gate, next_path)
         s["path_asked"] = True
@@ -362,16 +381,25 @@ def chat(req: ChatRequest):
             log=log
         )
 
-    # Current path not satisfied, try next path in same gate
-    s["path_idx"] += 1
+    # Current path not satisfied, mark it as tried and find next untried path
+    s["tried_paths"].add(s["path_idx"])
     s["path_asked"] = False
 
     log["Decision"] = "PATH_NOT_SATISFIED_TRY_NEXT"
     log["Reason"] = result["reason"]
     log_turn(log)
 
+    # Find next untried path
+    total_paths = len(gate_requirements[gate]["paths"])
+    next_path_idx = None
+    
+    for i in range(total_paths):
+        if i not in s["tried_paths"]:
+            next_path_idx = i
+            break
+
     # Check if we've exhausted all paths for this gate
-    if s["path_idx"] >= len(gate_requirements[gate]["paths"]):
+    if next_path_idx is None:
         return ChatResponse(
             conversation_id=cid,
             agent_message="I'm unable to identify the correct item. A support agent will review this.",
@@ -379,8 +407,10 @@ def chat(req: ChatRequest):
             log=log
         )
 
-    # Ask question for next path in same gate
-    next_path = gate_requirements[gate]["paths"][s["path_idx"]]
+    # Ask question for next untried path in same gate
+    s["path_idx"] = next_path_idx
+    s["tried_paths"].add(next_path_idx)
+    next_path = gate_requirements[gate]["paths"][next_path_idx]
     next_q = ask_for_path(gate, next_path)
     s["path_asked"] = True
 
