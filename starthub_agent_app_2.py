@@ -194,7 +194,7 @@ Return JSON only:
 """)
 
 ASK_PROMPT = PromptTemplate.from_template("""
-You are a helpful customer support agent helping a user scan and upload their mail.
+You are a helpful customer support agent providing support to users in a professional way.
 
 WHAT YOU'RE TRYING TO IDENTIFY:
 {path_description}
@@ -478,3 +478,4 @@ def chat(req: ChatRequest):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
