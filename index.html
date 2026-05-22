@@ -1,357 +1,496 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Secure SOP Agent | General Contractor Portal</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-    <style>
-        * { font-family: 'Inter', sans-serif; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ask Morgan – Secure SOP Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Inter', sans-serif; }
 
-        body {
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
-            min-height: 100vh;
-        }
+    body {
+      background: linear-gradient(145deg, #0a0e1a 0%, #111827 40%, #0f172a 100%);
+    }
 
-        /* Glassmorphism card */
-        .glass {
-            background: rgba(255, 255, 255, 0.04);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-        }
+    /* Glassmorphism */
+    .glass-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
 
-        /* Chat scrollbar */
-        #chat-window::-webkit-scrollbar { width: 4px; }
-        #chat-window::-webkit-scrollbar-track { background: transparent; }
-        #chat-window::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius: 2px; }
+    /* Chat scrollbar */
+    #chatCanvas::-webkit-scrollbar { width: 5px; }
+    #chatCanvas::-webkit-scrollbar-track { background: transparent; }
+    #chatCanvas::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 3px; }
 
-        /* User bubble */
-        .bubble-user {
-            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-            border-radius: 18px 18px 4px 18px;
-        }
+    /* User bubble */
+    .bubble-user {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      border-radius: 20px 20px 4px 20px;
+    }
 
-        /* Agent bubble */
-        .bubble-agent {
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 18px 18px 18px 4px;
-        }
+    /* Agent bubble */
+    .bubble-agent {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px 20px 20px 4px;
+    }
 
-        /* Typing dots animation */
-        .dot { animation: bounce 1.2s infinite; }
-        .dot:nth-child(2) { animation-delay: 0.2s; }
-        .dot:nth-child(3) { animation-delay: 0.4s; }
+    /* Pulsating status dot */
+    @keyframes pulse-live {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+      50% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+    }
+    .pulse-dot { animation: pulse-live 2s ease-in-out infinite; }
 
-        @keyframes bounce {
-            0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
-            40% { transform: translateY(-6px); opacity: 1; }
-        }
+    /* Fade-in for chat messages */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeSlideUp 0.3s ease-out forwards; }
 
-        /* Glow ring on input focus */
-        #user-input:focus { box-shadow: 0 0 0 2px rgba(99,102,241,0.5), 0 0 20px rgba(99,102,241,0.15); }
+    /* Animated gradient line */
+    .accent-line {
+      background: linear-gradient(90deg, #4f46e5, #7c3aed, #ec4899, #4f46e5);
+      background-size: 300% 100%;
+      animation: shimmer 4s linear infinite;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 0% 50%; }
+      100% { background-position: 300% 50%; }
+    }
 
-        /* Role badge */
-        .role-badge {
-            font-size: 10px;
-            padding: 2px 8px;
-            border-radius: 99px;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-        }
+    /* Typing dots */
+    .typing-dot { animation: typingBounce 1.4s infinite; }
+    .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typingBounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
+      40% { transform: translateY(-5px); opacity: 1; }
+    }
 
-        /* Send button pulse on hover */
-        #send-btn:hover { box-shadow: 0 0 20px rgba(99,102,241,0.6); }
+    /* Login input focus glow */
+    .login-input:focus {
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.4);
+    }
 
-        /* Fade-in animation for new messages */
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .fade-up { animation: fadeUp 0.3s ease forwards; }
-
-        /* Security badge pulse */
-        @keyframes pulse-green {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
-            50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
-        }
-        .pulse-green { animation: pulse-green 2s infinite; }
-
-        /* Top bar gradient line */
-        .gradient-line {
-            background: linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899, #6366f1);
-            background-size: 300% 100%;
-            animation: shimmer 3s linear infinite;
-        }
-        @keyframes shimmer {
-            0% { background-position: 0% 50%; }
-            100% { background-position: 300% 50%; }
-        }
-
-        select option { background: #1e1b4b; color: white; }
-    </style>
+    /* Smooth dashboard reveal */
+    #dashboard {
+      transition: opacity 0.5s ease-in-out;
+    }
+  </style>
 </head>
-<body class="flex flex-col items-center justify-center min-h-screen p-4">
 
-    <!-- Main Container -->
-    <div class="w-full max-w-3xl flex flex-col h-[90vh] rounded-2xl overflow-hidden shadow-2xl glass">
+<body class="text-white min-h-screen flex flex-col">
 
-        <!-- Gradient accent line -->
-        <div class="h-[2px] w-full gradient-line flex-shrink-0"></div>
+  <!-- ================================================================
+       1. LOGIN MODAL OVERLAY (covers full screen on page load)
+       ================================================================ -->
+  <div id="loginModal"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
 
-        <!-- TOP BAR -->
-        <div class="flex items-center justify-between px-6 py-4 flex-shrink-0 border-b border-white/8">
-            <!-- Logo + Title -->
-            <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                    </svg>
-                </div>
-                <div>
-                    <h1 class="text-white font-semibold text-sm leading-tight">Secure SOP Agent</h1>
-                    <p class="text-white/40 text-xs">General Contractor Portal</p>
-                </div>
-            </div>
+    <div class="glass-card w-full max-w-md mx-4 p-8 rounded-2xl shadow-2xl">
 
-            <!-- Identity Selector + Status -->
-            <div class="flex items-center gap-3">
-                <!-- Live Status -->
-                <div class="flex items-center gap-1.5">
-                    <div class="w-2 h-2 rounded-full bg-green-400 pulse-green"></div>
-                    <span class="text-green-400 text-xs font-medium">Live</span>
-                </div>
-
-                <!-- User Dropdown -->
-                <div class="relative">
-                    <select id="user-select"
-                        class="appearance-none glass text-white text-xs font-medium pl-3 pr-8 py-2 rounded-xl border border-white/10 cursor-pointer outline-none transition-all hover:border-indigo-500/50 focus:border-indigo-500"
-                        onchange="updateRoleBadge()">
-                        <option value="user_elec_456" data-role="Electrical" data-color="blue">
-                            user_elec_456 — Electrical
-                        </option>
-                        <option value="user_plumb_789" data-role="Plumbing" data-color="cyan">
-                            user_plumb_789 — Plumbing
-                        </option>
-                        <option value="gc_admin_100" data-role="GC Admin" data-color="purple">
-                            gc_admin_100 — Admin
-                        </option>
-                    </select>
-                    <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-white/40 pointer-events-none"
-                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </div>
-
-                <!-- Role Badge -->
-                <span id="role-badge" class="role-badge bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                    Electrical
-                </span>
-            </div>
+      <!-- Shield Icon -->
+      <div class="flex justify-center mb-5">
+        <div class="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
+          <svg class="w-7 h-7 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
         </div>
+      </div>
 
-        <!-- CHAT WINDOW -->
-        <div id="chat-window" class="flex-1 overflow-y-auto px-6 py-6 space-y-5">
-            <!-- Welcome message -->
-            <div class="fade-up flex items-start gap-3">
-                <!-- Agent Avatar -->
-                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg">
-                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-                    </svg>
-                </div>
-                <!-- Welcome Bubble -->
-                <div class="bubble-agent px-4 py-3 max-w-md">
-                    <p class="text-white/90 text-sm leading-relaxed">
-                        Welcome to the <span class="text-indigo-400 font-semibold">Secure SOP Agent</span>.
-                        I can only access project data authorized for your current identity.
-                        Select your user above and ask me anything about your projects.
-                    </p>
-                    <p class="text-white/30 text-xs mt-2">RLS-enforced · ChromaDB RAG · Groq Llama 3.3</p>
-                </div>
-            </div>
-        </div>
+      <h2 class="text-2xl font-bold text-center mb-1">Ask Morgan</h2>
+      <p class="text-sm text-white/40 text-center mb-8">Security Gateway · Entitlement Verification</p>
 
-        <!-- BOTTOM INPUT BAR -->
-        <div class="flex-shrink-0 border-t border-white/8 px-4 py-4">
-            <div class="flex items-center gap-3">
-                <div class="flex-1 relative">
-                    <input
-                        id="user-input"
-                        type="text"
-                        placeholder="Ask about project status, costs, or secure data..."
-                        class="w-full glass text-white placeholder-white/25 text-sm px-4 py-3 rounded-xl border border-white/10 outline-none transition-all"
-                        onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendMessage(); }"
-                    />
-                </div>
-                <button
-                    id="send-btn"
-                    onclick="sendMessage()"
-                    class="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg shadow-indigo-500/30"
-                >
-                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-                    </svg>
-                </button>
-            </div>
-            <p class="text-center text-white/20 text-xs mt-3">
-                Secured by Row-Level Security &middot; Data never leaves your server
-            </p>
-        </div>
+      <!-- User Identity -->
+      <div class="mb-4">
+        <label for="loginUserId" class="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">
+          User Identity (User ID)
+        </label>
+        <input id="loginUserId"
+               type="text"
+               placeholder="e.g. user_elec_456"
+               autocomplete="username"
+               class="login-input w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all">
+      </div>
 
+      <!-- Secure Password -->
+      <div class="mb-4">
+        <label for="loginPassword" class="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">
+          Secure Password
+        </label>
+        <input id="loginPassword"
+               type="password"
+               placeholder="Enter your secure password"
+               autocomplete="current-password"
+               class="login-input w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();executeLogin();}">
+      </div>
+
+      <!-- Error message (hidden by default) -->
+      <div id="loginError"
+           class="hidden mb-4 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+      </div>
+
+      <!-- Verify Button -->
+      <button id="loginBtn"
+              onclick="executeLogin()"
+              class="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 active:scale-[0.98]">
+        Verify Identity
+      </button>
+
+      <p class="text-center text-white/20 text-xs mt-6">
+        Protected by Row-Level Security &middot; Entitlement-gated access
+      </p>
     </div>
+  </div>
 
-    <script>
-        // Role badge color map
-        const roleColors = {
-            'user_elec_456': { label: 'Electrical', bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' },
-            'user_plumb_789': { label: 'Plumbing', bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30' },
-            'gc_admin_100': { label: 'GC Admin', bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30' }
-        };
+  <!-- ================================================================
+       2. APPLICATION DASHBOARD (opacity 0 until login succeeds)
+       ================================================================ -->
+  <div id="dashboard" class="flex flex-col flex-1 min-h-screen" style="opacity: 0; pointer-events: none;">
 
-        function updateRoleBadge() {
-            const select = document.getElementById('user-select');
-            const badge = document.getElementById('role-badge');
-            const config = roleColors[select.value];
-            badge.className = `role-badge ${config.bg} ${config.text} border ${config.border}`;
-            badge.textContent = config.label;
+    <!-- Gradient accent line -->
+    <div class="accent-line h-[2px] w-full flex-shrink-0"></div>
+
+    <!-- -------- HEADER -------- -->
+    <header class="flex items-center justify-between px-6 py-3.5 glass-card border-b border-white/5 flex-shrink-0">
+
+      <!-- Left: Brand + Live status -->
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-sm font-bold leading-tight">Ask Morgan</h1>
+          <div class="flex items-center gap-1.5 mt-0.5">
+            <div class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></div>
+            <span class="text-emerald-400 text-[10px] font-medium uppercase tracking-wider">Secure Session Active</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: User info + Sign Out -->
+      <div class="flex items-center gap-3">
+        <!-- Authenticated user name -->
+        <span id="headerUserName" class="text-sm font-medium text-white/70"></span>
+
+        <!-- Role/Discipline badge -->
+        <span id="headerRoleBadge"
+              class="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider">
+        </span>
+
+        <!-- Sign Out -->
+        <button onclick="triggerLogout()"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-red-500/10 hover:border-red-500/30 transition-all text-xs text-white/50 hover:text-red-400">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+          Sign Out
+        </button>
+      </div>
+    </header>
+
+    <!-- -------- CHAT CANVAS (scrollable workspace) -------- -->
+    <main id="chatCanvas" class="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+      <!-- System welcome message (rendered by JS after login) -->
+    </main>
+
+    <!-- -------- BOTTOM INPUT PANEL -------- -->
+    <footer class="flex-shrink-0 border-t border-white/5 px-5 py-4 glass-card">
+      <div class="flex items-center gap-3 max-w-4xl mx-auto">
+        <input id="msgInput"
+               type="text"
+               placeholder="Ask Morgan about your projects..."
+               autocomplete="off"
+               class="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all focus:border-indigo-500/50 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.2)]"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();submitUserMessage();}">
+
+        <button id="sendBtn"
+                onclick="submitUserMessage()"
+                class="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg shadow-indigo-500/25 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+          </svg>
+        </button>
+      </div>
+      <p class="text-center text-white/15 text-[10px] mt-3 tracking-wide">
+        Entitlement-filtered RAG &middot; Groq Llama 3.3 &middot; Row-Level Security enforced
+      </p>
+    </footer>
+  </div>
+
+  <!-- ================================================================
+       3. JAVASCRIPT STATE ENGINE
+       ================================================================ -->
+  <script>
+    // ---------------------------------------------------------------
+    // Global auth state
+    // ---------------------------------------------------------------
+    let SESSION_TOKEN = null;   // user_id returned by /api/auth/login
+    let SESSION_NAME  = null;
+    let SESSION_ROLE  = null;
+
+    // ---------------------------------------------------------------
+    // DOM shortcuts
+    // ---------------------------------------------------------------
+    const $ = (id) => document.getElementById(id);
+
+    // ---------------------------------------------------------------
+    // Utility: escape HTML to prevent XSS
+    // ---------------------------------------------------------------
+    function esc(text) {
+      const d = document.createElement('div');
+      d.appendChild(document.createTextNode(text));
+      return d.innerHTML;
+    }
+
+    // ---------------------------------------------------------------
+    // Role → badge color map
+    // ---------------------------------------------------------------
+    function getRoleBadgeClasses(role) {
+      const r = (role || '').toLowerCase();
+      if (r === 'electrical') return 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+      if (r === 'plumbing')   return 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30';
+      if (r === 'gc_owner')   return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+      if (r === 'admin')      return 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
+      return 'bg-gray-500/20 text-gray-300 border border-gray-500/30';
+    }
+
+    // ---------------------------------------------------------------
+    // Add a chat bubble
+    // ---------------------------------------------------------------
+    function addBubble(text, sender) {
+      const canvas = $('chatCanvas');
+      const wrapper = document.createElement('div');
+      wrapper.className = `fade-in flex ${sender === 'user' ? 'justify-end' : 'items-start gap-3'}`;
+
+      const formatted = esc(text).replace(/\n/g, '<br>');
+
+      if (sender === 'user') {
+        wrapper.innerHTML = `
+          <div class="bubble-user px-4 py-3 max-w-lg">
+            <p class="text-white text-sm leading-relaxed">${formatted}</p>
+          </div>`;
+      } else {
+        wrapper.innerHTML = `
+          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20">
+            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+            </svg>
+          </div>
+          <div class="bubble-agent px-4 py-3 max-w-lg">
+            <p class="text-white/90 text-sm leading-relaxed">${formatted}</p>
+            <p class="text-white/20 text-[10px] mt-2">Verified · Entitlement-filtered response</p>
+          </div>`;
+      }
+
+      canvas.appendChild(wrapper);
+      canvas.scrollTop = canvas.scrollHeight;
+    }
+
+    // ---------------------------------------------------------------
+    // Typing indicator
+    // ---------------------------------------------------------------
+    function showTyping() {
+      const canvas = $('chatCanvas');
+      const el = document.createElement('div');
+      el.id = 'typingIndicator';
+      el.className = 'fade-in flex items-start gap-3';
+      el.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+        </div>
+        <div class="bubble-agent px-4 py-3">
+          <div class="flex items-center gap-2">
+            <div class="typing-dot w-2 h-2 rounded-full bg-indigo-400"></div>
+            <div class="typing-dot w-2 h-2 rounded-full bg-indigo-400"></div>
+            <div class="typing-dot w-2 h-2 rounded-full bg-indigo-400"></div>
+            <span class="text-white/30 text-xs ml-1">Morgan is resolving access...</span>
+          </div>
+        </div>`;
+      canvas.appendChild(el);
+      canvas.scrollTop = canvas.scrollHeight;
+    }
+
+    function hideTyping() {
+      const el = $('typingIndicator');
+      if (el) el.remove();
+    }
+
+    // ---------------------------------------------------------------
+    // Toggle send button state
+    // ---------------------------------------------------------------
+    function setSendState(disabled) {
+      $('sendBtn').disabled = disabled;
+      $('msgInput').disabled = disabled;
+    }
+
+    // ---------------------------------------------------------------
+    // 1. executeLogin()
+    // ---------------------------------------------------------------
+    async function executeLogin() {
+      // Clear previous error
+      const errBox = $('loginError');
+      errBox.classList.add('hidden');
+      errBox.textContent = '';
+
+      const userId   = $('loginUserId').value.trim();
+      const password = $('loginPassword').value;
+
+      if (!userId || !password) {
+        errBox.textContent = 'Both fields are required.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      // Disable button during request
+      $('loginBtn').disabled = true;
+      $('loginBtn').textContent = 'Verifying...';
+
+      try {
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: userId, password: password })
+        });
+
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data.detail || 'Invalid corporate credentials');
         }
 
-        function getCurrentUserId() {
-            return document.getElementById('user-select').value;
+        const data = await resp.json();
+
+        // Save session state
+        SESSION_TOKEN = data.token;           // user_id
+        SESSION_NAME  = data.name  || data.user_name || userId;
+        SESSION_ROLE  = data.role  || data.user_role || 'Unknown';
+
+        // Populate header
+        $('headerUserName').textContent = SESSION_NAME;
+        const badge = $('headerRoleBadge');
+        badge.textContent = SESSION_ROLE.toUpperCase();
+        badge.className = `px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${getRoleBadgeClasses(SESSION_ROLE)}`;
+
+        // Hide login modal, reveal dashboard
+        $('loginModal').style.display = 'none';
+        const dash = $('dashboard');
+        dash.style.opacity = '1';
+        dash.style.pointerEvents = 'auto';
+
+        // Welcome message
+        addBubble(
+          `Session authenticated. Welcome, ${SESSION_NAME}.\n` +
+          `Your active discipline is "${SESSION_ROLE}". ` +
+          `All responses are strictly filtered to your entitlement boundary.\n` +
+          `Ask me anything about your authorized projects.`,
+          'agent'
+        );
+
+        $('msgInput').focus();
+
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.classList.remove('hidden');
+      } finally {
+        $('loginBtn').disabled = false;
+        $('loginBtn').textContent = 'Verify Identity';
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 2. triggerLogout()
+    // ---------------------------------------------------------------
+    function triggerLogout() {
+      SESSION_TOKEN = null;
+      SESSION_NAME  = null;
+      SESSION_ROLE  = null;
+
+      // Reset UI
+      $('chatCanvas').innerHTML = '';
+      $('loginUserId').value = '';
+      $('loginPassword').value = '';
+      $('headerUserName').textContent = '';
+      $('headerRoleBadge').textContent = '';
+
+      // Show login modal, hide dashboard
+      $('loginModal').style.display = 'flex';
+      $('dashboard').style.opacity = '0';
+      $('dashboard').style.pointerEvents = 'none';
+
+      $('loginUserId').focus();
+    }
+
+    // ---------------------------------------------------------------
+    // 3. submitUserMessage()
+    // ---------------------------------------------------------------
+    async function submitUserMessage() {
+      const input = $('msgInput');
+      const msg = input.value.trim();
+      if (!msg || !SESSION_TOKEN) return;
+
+      input.value = '';
+      setSendState(true);
+
+      // Render user bubble
+      addBubble(msg, 'user');
+
+      // Show typing indicator
+      showTyping();
+
+      try {
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Acting-As': SESSION_TOKEN
+          },
+          body: JSON.stringify({ message: msg })
+        });
+
+        hideTyping();
+
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok) {
+          const errMsg = data.detail || `Server error (HTTP ${resp.status})`;
+          addBubble(`⚠️ ${errMsg}`, 'agent');
+        } else {
+          const reply = data.reply || data.agent_message || 'No response received.';
+          addBubble(reply, 'agent');
         }
 
-        function appendUserMessage(text) {
-            const chatWindow = document.getElementById('chat-window');
-            const wrapper = document.createElement('div');
-            wrapper.className = 'fade-up flex justify-end';
-            wrapper.innerHTML = `
-                <div class="bubble-user px-4 py-3 max-w-md">
-                    <p class="text-white text-sm leading-relaxed">${escapeHtml(text)}</p>
-                </div>`;
-            chatWindow.appendChild(wrapper);
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
+      } catch (err) {
+        hideTyping();
+        addBubble(`⚠️ Connection error: ${err.message}`, 'agent');
+      } finally {
+        setSendState(false);
+        $('msgInput').focus();
+      }
+    }
 
-        function appendTypingIndicator() {
-            const chatWindow = document.getElementById('chat-window');
-            const typing = document.createElement('div');
-            typing.id = 'typing-indicator';
-            typing.className = 'fade-up flex items-start gap-3';
-            typing.innerHTML = `
-                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg">
-                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-                    </svg>
-                </div>
-                <div class="bubble-agent px-4 py-3">
-                    <div class="flex items-center gap-1.5">
-                        <div class="dot w-2 h-2 rounded-full bg-indigo-400"></div>
-                        <div class="dot w-2 h-2 rounded-full bg-indigo-400"></div>
-                        <div class="dot w-2 h-2 rounded-full bg-indigo-400"></div>
-                        <span class="text-white/40 text-xs ml-2">Agent is thinking...</span>
-                    </div>
-                </div>`;
-            chatWindow.appendChild(typing);
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
-
-        function removeTypingIndicator() {
-            const typing = document.getElementById('typing-indicator');
-            if (typing) typing.remove();
-        }
-
-        function appendAgentMessage(text, isError = false) {
-            const chatWindow = document.getElementById('chat-window');
-            const wrapper = document.createElement('div');
-            wrapper.className = 'fade-up flex items-start gap-3';
-
-            const textColor = isError ? 'text-red-400' : 'text-white/90';
-            const footerText = isError ? 'Error response' : 'Verified · RLS-filtered response';
-            const footerColor = isError ? 'text-red-500/50' : 'text-white/25';
-
-            // Convert newlines to <br> for nice formatting
-            const formattedText = escapeHtml(text).replace(/\n/g, '<br>');
-
-            wrapper.innerHTML = `
-                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg">
-                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-                    </svg>
-                </div>
-                <div class="bubble-agent px-4 py-3 max-w-md">
-                    <p class="${textColor} text-sm leading-relaxed">${formattedText}</p>
-                    <p class="${footerColor} text-xs mt-2">${footerText}</p>
-                </div>`;
-            chatWindow.appendChild(wrapper);
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.appendChild(document.createTextNode(text));
-            return div.innerHTML;
-        }
-
-        function setInputState(disabled) {
-            const input = document.getElementById('user-input');
-            const btn = document.getElementById('send-btn');
-            input.disabled = disabled;
-            btn.disabled = disabled;
-            btn.style.opacity = disabled ? '0.5' : '1';
-        }
-
-        async function sendMessage() {
-            const input = document.getElementById('user-input');
-            const query = input.value.trim();
-            if (!query) return;
-
-            const userId = getCurrentUserId();
-            input.value = '';
-            setInputState(true);
-
-            // Show user message bubble
-            appendUserMessage(query);
-
-            // Show typing indicator
-            appendTypingIndicator();
-
-            try {
-                const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-User-Id': userId
-                    },
-                    body: JSON.stringify({ user_query: query })
-                });
-
-                removeTypingIndicator();
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    const errorMsg = data.detail || `HTTP ${response.status}: Unexpected error.`;
-                    appendAgentMessage(errorMsg, true);
-                } else {
-                    appendAgentMessage(data.response || 'No response returned.');
-                }
-
-            } catch (err) {
-                removeTypingIndicator();
-                appendAgentMessage('Connection error: Unable to reach the Secure SOP Agent server. Please ensure the backend is running.', true);
-            } finally {
-                setInputState(false);
-                document.getElementById('user-input').focus();
-            }
-        }
-    </script>
+    // ---------------------------------------------------------------
+    // Auto-focus on page load
+    // ---------------------------------------------------------------
+    window.addEventListener('DOMContentLoaded', () => {
+      $('loginUserId').focus();
+    });
+  </script>
 </body>
 </html>

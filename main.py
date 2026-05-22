@@ -1,5 +1,6 @@
 import os
 import json
+import pandas as pd
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -27,9 +28,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic request schema
+# Pydantic request schemas
+class LoginPayload(BaseModel):
+    username: str
+
 class ChatRequest(BaseModel):
-    user_query: str
+    message: str
 
 
 def get_groq_client():
@@ -52,6 +56,26 @@ def startup_event():
     print("[STARTUP] Vector store ready.")
 
 
+# ── Login endpoint (no password – match username against user_id) ──
+@app.post("/api/auth/login")
+def secure_login(payload: LoginPayload):
+    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    df = pd.read_excel(os.path.join(BASE_DIR, "users_gate_permissions.xlsx"), dtype=str).fillna("")
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    match = df[df["user_id"] == payload.username.strip()]
+    if match.empty:
+        raise HTTPException(status_code=401, detail="Invalid corporate credentials")
+
+    row = match.iloc[0]
+    return {
+        "status": "authenticated",
+        "token": row.get("user_id"),
+        "name": row.get("user_name", payload.username),
+        "role": row.get("user_role", "Unknown"),
+    }
+
+
 # Serve the frontend HTML at root
 @app.get("/", response_class=HTMLResponse)
 def serve_frontend():
@@ -66,7 +90,7 @@ def serve_frontend():
 @app.post("/api/chat")
 def secure_chat_endpoint(
     req: ChatRequest,
-    x_user_id: str | None = Header(default=None, alias="X-User-Id")
+    x_acting_as: str | None = Header(default=None, alias="X-Acting-As")
 ):
     """
     Full E2E secure endpoint:
@@ -75,16 +99,16 @@ def secure_chat_endpoint(
     3. Feeds retrieved context to Groq (Llama 3.3) for humanized response.
     """
     # 1. Validate security header
-    if not x_user_id or not x_user_id.strip():
+    if not x_acting_as or not x_acting_as.strip():
         raise HTTPException(
-            status_code=400,
-            detail="Missing required 'X-User-Id' header."
+            status_code=401,
+            detail="Missing required 'X-Acting-As' header."
         )
 
-    user_id_val = x_user_id.strip()
+    user_id_val = x_acting_as.strip()
 
     # 2. Semantic search with RLS enforcement (ChromaDB)
-    vector_context = semantic_secure_search(user_id=user_id_val, user_query=req.user_query)
+    vector_context = semantic_secure_search(user_id=user_id_val, user_query=req.message)
 
     # Handle pipeline-level errors from vector search
     if isinstance(vector_context, str) and vector_context.startswith("[PIPELINE ERROR]"):
@@ -135,7 +159,7 @@ def secure_chat_endpoint(
         f"[VERIFIED SECURE DATA CONTEXT - Retrieved via RLS-filtered Vector Search]:\n"
         f"{vector_context}\n\n"
         f"---\n"
-        f"USER QUERY: {req.user_query}"
+        f"USER QUERY: {req.message}"
     )
 
     # 7. Call Groq (Llama 3.3) for humanized answer
@@ -162,7 +186,7 @@ def secure_chat_endpoint(
         "status": "success",
         "user_id": user_id_val,
         "user_role": user_role,
-        "response": llama_response
+        "reply": llama_response
     }
 
 
