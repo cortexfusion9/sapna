@@ -1,0 +1,10 @@
+# Folders to ignore
+chroma_db/
+chroma_gates/
+chroma_intents/
+venv/
+.env
+~$*
+
+# Cache
+__pycache__/

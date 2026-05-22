@@ -2,47 +2,57 @@ import os
 import json
 import pandas as pd
 import chromadb
+import psycopg2  # Dynamic sync handler for native operations inside vector utility
+from psycopg2.extras import RealDictCursor
 from chromadb.utils import embedding_functions
-from setup_database import verify_user_session
 
 # Define persistent storage path for ChromaDB
 DB_PATH = "./chroma_db"
-USERS_FILE = "users_gate_permissions.xlsx"
-STATUS_FILE = "gc_project_status.xlsx"
-VAULT_FILE = "gc_project_vault.xlsx"
+RULES_FILE = "intent_mapping_rules.xlsx" 
 
 # 1. Initialize local persistent ChromaDB client and local embedding function
 client = chromadb.PersistentClient(path=DB_PATH)
-
-# Use Chroma's default lightweight local embedding function (SentenceTransformer MiniLM)
 embedding_fn = embedding_functions.DefaultEmbeddingFunction()
 
-# Get or create the secure SOP collection
 collection = client.get_or_create_collection(
     name="secure_sop_documents",
     embedding_function=embedding_fn
 )
 
 
-def ingest_project_data():
-    """
-    Reads the local project status and project vault Excel files,
-    constructs text representations for each row, and ingests them
-    into ChromaDB with RLS-compliant metadata tags.
-    """
-    print("\n--- Starting Vector Database Ingestion ---")
-    
-    # Verify Excel database files exist
-    if not os.path.exists(STATUS_FILE) or not os.path.exists(VAULT_FILE):
-        print("[ERROR] Excel files missing. Please run setup_database() first.")
-        return False
+def get_db_connection():
+    """Establishes a synchronized database connection for system verification tasks."""
+    return psycopg2.connect(
+        user=os.environ.get("DB_USER", "postgres"),
+        password=os.environ.get("DB_PASSWORD", "Sapna123"),
+        database=os.environ.get("DB_NAME", "gc_subsc"),
+        host=os.environ.get("DB_HOST", "127.0.0.1"),
+        port=int(os.environ.get("DB_PORT", 5432))
+    )
 
-    # Clear existing collection items before fresh ingestion to avoid duplicates
+
+def ingest_project_data():
+    """Reads core intent guidelines from Excel into ChromaDB."""
+    print("\n--- Starting Vector Database Ingestion (System Rules & Intents Only) ---")
+    
+    if not os.path.exists(RULES_FILE):
+        print(f"[WARNING] {RULES_FILE} missing. Creating fallback default guidelines...")
+        default_rules = {
+            "intent_type": ["Check_Project_Status", "View_Project_Vault", "General_SOP_Query"],
+            "discipline": ["General Contractor", "Electrical", "Plumbing"],
+            "rule_description": [
+                "Rule for routing project tracking, completion percentage, and baseline active milestones.",
+                "Rule for handling secure credential tokens, costs payloads, financial records, and core secure keys.",
+                "Standard operating guidelines for contractor interaction, system logic, and formatting layout constraints."
+            ]
+        }
+        pd.DataFrame(default_rules).to_excel(RULES_FILE, index=False, engine="openpyxl")
+
     try:
         existing_data = collection.get()
         if existing_data and existing_data["ids"]:
             print(f"Clearing {len(existing_data['ids'])} existing vector documents...")
-            collection.delete(ids=existing_data["ids"])
+            collection.delete(ids=existing_data['ids'])
     except Exception as e:
         print(f"[INFO] Collection clear status: {str(e)}")
 
@@ -50,138 +60,88 @@ def ingest_project_data():
     metadatas = []
     ids = []
 
-    # 1. Ingest Status Data (gc_project_status.xlsx)
     try:
-        df_status = pd.read_excel(STATUS_FILE, engine="openpyxl")
-        print(f"Reading {STATUS_FILE} (found {len(df_status)} records)...")
-        for index, row in df_status.iterrows():
-            doc_id = f"status_{row.get('id', index)}"
-            proj_id = str(row.get("project_id", "")).strip()
-            proj_name = str(row.get("project_name", "")).strip()
-            discipline = str(row.get("discipline", "")).strip()
-            status = str(row.get("current_status", "")).strip()
-            last_updated = str(row.get("last_updated", "")).strip()
+        df_rules = pd.read_excel(RULES_FILE, engine="openpyxl").fillna("")
+        df_rules.columns = [c.strip().lower() for c in df_rules.columns]
+        
+        for index, row in df_rules.iterrows():
+            doc_id = f"rule_{index}"
+            intent_type = str(row.get("intent_type", "General_Query")).strip()
+            discipline = str(row.get("discipline", "General Contractor")).strip()
+            rule_desc = str(row.get("rule_description", "")).strip()
 
-            # Represent document text for semantic search
             doc_text = (
-                f"Project Status Details - "
-                f"Project Name: {proj_name}, "
-                f"Project ID: {proj_id}, "
-                f"Discipline: {discipline}, "
-                f"Current Status: {status}, "
-                f"Last Updated: {last_updated}."
+                f"Corporate Access Rule and Intent Guide - "
+                f"Intent Context: {intent_type}, "
+                f"Target Discipline Boundary: {discipline}, "
+                f"Procedural Rule Description: {rule_desc}."
             )
             
             documents.append(doc_text)
             metadatas.append({
-                "project_id": proj_id,
-                "project_name": proj_name,
                 "discipline": discipline,
-                "intent_type": "Check_Project_Status"
+                "intent_type": intent_type,
+                "scope": "system_rules"
             })
             ids.append(doc_id)
-    except Exception as e:
-        print(f"[ERROR] Ingesting Status sheet failed: {str(e)}")
-        return False
-
-    # 2. Ingest Vault Data (gc_project_vault.xlsx)
-    try:
-        df_vault = pd.read_excel(VAULT_FILE, engine="openpyxl")
-        print(f"Reading {VAULT_FILE} (found {len(df_vault)} records)...")
-        for index, row in df_vault.iterrows():
-            doc_id = f"vault_{row.get('id', index)}"
-            proj_id = str(row.get("project_id", "")).strip()
-            proj_name = str(row.get("project_name", "")).strip()
-            discipline = str(row.get("discipline", "")).strip()
-            cost = str(row.get("total_project_cost", "")).strip()
-            payload = str(row.get("secure_data_payload", "")).strip()
-
-            # Represent document text for semantic search
-            doc_text = (
-                f"Project Vault Confidential Details - "
-                f"Project Name: {proj_name}, "
-                f"Project ID: {proj_id}, "
-                f"Discipline: {discipline}, "
-                f"Total Project Cost: ${cost}, "
-                f"Secure Data Payload: {payload}."
-            )
             
-            documents.append(doc_text)
-            metadatas.append({
-                "project_id": proj_id,
-                "project_name": proj_name,
-                "discipline": discipline,
-                "intent_type": "View_Project_Vault"
-            })
-            ids.append(doc_id)
+        if documents:
+            collection.add(documents=documents, metadatas=metadatas, ids=ids)
+            print(f"[SUCCESS] Vector DB Ingestion complete: {len(documents)} system rules vectorized.")
+            return True
     except Exception as e:
-        print(f"[ERROR] Ingesting Vault sheet failed: {str(e)}")
-        return False
-
-    # Perform bulk ingestion to ChromaDB
-    if documents:
-        collection.add(
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids
-        )
-        print(f"[SUCCESS] Vector DB Ingestion complete: {len(documents)} documents vectorized.")
-        return True
-    
+        print(f"[ERROR] Ingesting System Rules failed: {str(e)}")
     return False
 
 
-def build_rls_where_filter(role: str, allowed_projects: list[str]) -> dict:
-    """
-    Helper function that builds a strict ChromaDB metadata 'where' filter
-    to enforce RLS (Row-Level Security) at the vector DB query layer.
-    """
+def build_rls_where_filter(role: str) -> dict:
     role_clean = role.strip()
-    
-    # Build project constraint filter
-    if len(allowed_projects) == 1:
-        project_filter = {"project_id": allowed_projects[0]}
-    else:
-        project_filter = {"project_id": {"$in": allowed_projects}}
-
-    # GC Admin/Owner bypasses discipline constraints
     if role_clean.upper() in ["GC_OWNER", "GC OWNER", "ADMIN"]:
-        return project_filter
+        return {"scope": "system_rules"}
     else:
-        # Enforce both discipline match and allowed projects match
         return {
             "$and": [
                 {"discipline": role_clean},
-                project_filter
+                {"scope": "system_rules"}
             ]
         }
 
 
-def semantic_secure_search(user_id: str, user_query: str) -> str:
-    """
-    Core semantic retrieval function.
-    Verifies user, builds strict RLS query filters, performs local semantic search via ChromaDB,
-    and returns a structured JSON string of RLS-compliant matching records.
-    """
-    # 1. Look up user session from permissions Excel sheet
-    user_info = verify_user_session(user_id)
-    if not user_info:
-        return f"[PIPELINE ERROR] Access Denied: User '{user_id}' is unauthorized."
+async def semantic_secure_search(user_id: str, user_query: str) -> str:
+    """Verifies sessions directly using PostgreSQL instead of an Excel sheet."""
+    role = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verify user details natively from database
+        cursor.execute(
+            "SELECT user_role FROM public.gc_users WHERE LOWER(TRIM(user_id)) = LOWER(%s);", 
+            (user_id.strip(),)
+        )
+        user_row = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if not user_row:
+            return f"[PIPELINE ERROR] Access Denied: User '{user_id}' is unauthorized inside SQL Registry."
+            
+        role = user_row["user_role"]
+        
+    except Exception as db_err:
+        return f"[PIPELINE ERROR] Session Auth Pipeline database connection failure: {str(db_err)}"
 
-    role, allowed_projects = user_info
-
-    # 2. Build RLS-compliant ChromaDB metadata query filters
-    where_filter = build_rls_where_filter(role, allowed_projects)
+    where_filter = build_rls_where_filter(role)
 
     try:
-        # 3. Perform semantic query inside local persistent ChromaDB collection
         query_results = collection.query(
             query_texts=[user_query],
-            n_results=2,  # Return top matches
+            n_results=1,
             where=where_filter
         )
 
-        # 4. Format RLS-secured documents into a structured response
         records = []
         if query_results and "documents" in query_results and query_results["documents"]:
             docs = query_results["documents"][0]
@@ -195,39 +155,9 @@ def semantic_secure_search(user_id: str, user_query: str) -> str:
                 })
 
         if not records:
-            return "[]"  # No matching authorized data found
+            return "[]"
 
         return json.dumps(records, indent=4)
 
     except Exception as e:
         return f"[PIPELINE ERROR] Semantic search failure: {str(e)}"
-
-
-if __name__ == "__main__":
-    # Automatic test suite
-    print("=" * 70)
-    print("       RUNNING VECTOR DATABASE INGESTION & SECURE SEMANTIC RAG TESTS")
-    print("=" * 70)
-
-    # 1. Ingest Excel spreadsheets into ChromaDB vectors
-    ingest_project_data()
-
-    # 2. Test semantic search for user_elec_456 (Electrical Subcontractor, allowed PRJ001)
-    print("\n[TEST 1] user_elec_456 asking semantically: 'Show me status and updates for Apex Tower'")
-    res1 = semantic_secure_search("user_elec_456", "Show me status and updates for Apex Tower")
-    print("RLS Context Returned:")
-    print(res1)
-
-    # 3. Test semantic search for user_plumb_789 (Plumbing Subcontractor, allowed PRJ001, PRJ002)
-    print("\n[TEST 2] user_plumb_789 asking semantically: 'What are the secure costs payload of my projects?'")
-    res2 = semantic_secure_search("user_plumb_789", "What are the secure costs payload of my projects?")
-    print("RLS Context Returned:")
-    print(res2)
-
-    # 4. Verification test: Checking if Electrical user can retrieve Plumbing details (Security Check)
-    print("\n[TEST 3 - SECURITY AUDIT] user_elec_456 trying to search plumbing details semantically:")
-    res3 = semantic_secure_search("user_elec_456", "Show me plumbing layout hashes and cost data")
-    print("RLS Context Returned:")
-    print(res3)
-
-    print("\n" + "=" * 70)

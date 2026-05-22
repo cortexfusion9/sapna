@@ -1,13 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ask Morgan – Secure SOP Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet">
   <style>
-    * { font-family: 'Inter', sans-serif; }
+    * {
+      font-family: 'Inter', sans-serif;
+    }
 
     body {
       background: linear-gradient(145deg, #0a0e1a 0%, #111827 40%, #0f172a 100%);
@@ -22,9 +26,18 @@
     }
 
     /* Chat scrollbar */
-    #chatCanvas::-webkit-scrollbar { width: 5px; }
-    #chatCanvas::-webkit-scrollbar-track { background: transparent; }
-    #chatCanvas::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 3px; }
+    #chatCanvas::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    #chatCanvas::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #chatCanvas::-webkit-scrollbar-thumb {
+      background: rgba(99, 102, 241, 0.3);
+      border-radius: 3px;
+    }
 
     /* User bubble */
     .bubble-user {
@@ -41,17 +54,37 @@
 
     /* Pulsating status dot */
     @keyframes pulse-live {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
-      50% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5);
+      }
+
+      50% {
+        box-shadow: 0 0 0 8px rgba(52, 211, 153, 0);
+      }
     }
-    .pulse-dot { animation: pulse-live 2s ease-in-out infinite; }
+
+    .pulse-dot {
+      animation: pulse-live 2s ease-in-out infinite;
+    }
 
     /* Fade-in for chat messages */
     @keyframes fadeSlideUp {
-      from { opacity: 0; transform: translateY(12px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
-    .fade-in { animation: fadeSlideUp 0.3s ease-out forwards; }
+
+    .fade-in {
+      animation: fadeSlideUp 0.3s ease-out forwards;
+    }
 
     /* Animated gradient line */
     .accent-line {
@@ -59,18 +92,43 @@
       background-size: 300% 100%;
       animation: shimmer 4s linear infinite;
     }
+
     @keyframes shimmer {
-      0%   { background-position: 0% 50%; }
-      100% { background-position: 300% 50%; }
+      0% {
+        background-position: 0% 50%;
+      }
+
+      100% {
+        background-position: 300% 50%;
+      }
     }
 
     /* Typing dots */
-    .typing-dot { animation: typingBounce 1.4s infinite; }
-    .typing-dot:nth-child(2) { animation-delay: 0.15s; }
-    .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+    .typing-dot {
+      animation: typingBounce 1.4s infinite;
+    }
+
+    .typing-dot:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .typing-dot:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+
     @keyframes typingBounce {
-      0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
-      40% { transform: translateY(-5px); opacity: 1; }
+
+      0%,
+      80%,
+      100% {
+        transform: translateY(0);
+        opacity: 0.3;
+      }
+
+      40% {
+        transform: translateY(-5px);
+        opacity: 1;
+      }
     }
 
     /* Login input focus glow */
@@ -87,20 +145,16 @@
 
 <body class="text-white min-h-screen flex flex-col">
 
-  <!-- ================================================================
-       1. LOGIN MODAL OVERLAY (covers full screen on page load)
-       ================================================================ -->
-  <div id="loginModal"
-       class="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+  <div id="loginModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
 
     <div class="glass-card w-full max-w-md mx-4 p-8 rounded-2xl shadow-2xl">
 
-      <!-- Shield Icon -->
       <div class="flex justify-center mb-5">
-        <div class="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
+        <div
+          class="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
           <svg class="w-7 h-7 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
         </div>
       </div>
@@ -108,40 +162,30 @@
       <h2 class="text-2xl font-bold text-center mb-1">Ask Morgan</h2>
       <p class="text-sm text-white/40 text-center mb-8">Security Gateway · Entitlement Verification</p>
 
-      <!-- User Identity -->
       <div class="mb-4">
         <label for="loginUserId" class="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">
           User Identity (User ID)
         </label>
-        <input id="loginUserId"
-               type="text"
-               placeholder="e.g. user_elec_456"
-               autocomplete="username"
-               class="login-input w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all">
+        <input id="loginUserId" type="text" placeholder="e.g. user_elec_456" autocomplete="username"
+          class="login-input w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all">
       </div>
 
-      <!-- Secure Password -->
       <div class="mb-4">
         <label for="loginPassword" class="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">
           Secure Password
         </label>
-        <input id="loginPassword"
-               type="password"
-               placeholder="Enter your secure password"
-               autocomplete="current-password"
-               class="login-input w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all"
-               onkeydown="if(event.key==='Enter'){event.preventDefault();executeLogin();}">
+        <input id="loginPassword" type="password" placeholder="Enter your secure password"
+          autocomplete="current-password"
+          class="login-input w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();executeLogin();}">
       </div>
 
-      <!-- Error message (hidden by default) -->
       <div id="loginError"
-           class="hidden mb-4 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+        class="hidden mb-4 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
       </div>
 
-      <!-- Verify Button -->
-      <button id="loginBtn"
-              onclick="executeLogin()"
-              class="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 active:scale-[0.98]">
+      <button id="loginBtn" onclick="executeLogin()"
+        class="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 active:scale-[0.98]">
         Verify Identity
       </button>
 
@@ -151,23 +195,17 @@
     </div>
   </div>
 
-  <!-- ================================================================
-       2. APPLICATION DASHBOARD (opacity 0 until login succeeds)
-       ================================================================ -->
   <div id="dashboard" class="flex flex-col flex-1 min-h-screen" style="opacity: 0; pointer-events: none;">
 
-    <!-- Gradient accent line -->
     <div class="accent-line h-[2px] w-full flex-shrink-0"></div>
 
-    <!-- -------- HEADER -------- -->
     <header class="flex items-center justify-between px-6 py-3.5 glass-card border-b border-white/5 flex-shrink-0">
 
-      <!-- Left: Brand + Live status -->
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
         </div>
         <div>
@@ -179,49 +217,37 @@
         </div>
       </div>
 
-      <!-- Right: User info + Sign Out -->
       <div class="flex items-center gap-3">
-        <!-- Authenticated user name -->
         <span id="headerUserName" class="text-sm font-medium text-white/70"></span>
 
-        <!-- Role/Discipline badge -->
-        <span id="headerRoleBadge"
-              class="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider">
+        <span id="headerRoleBadge" class="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider">
         </span>
 
-        <!-- Sign Out -->
         <button onclick="triggerLogout()"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-red-500/10 hover:border-red-500/30 transition-all text-xs text-white/50 hover:text-red-400">
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-red-500/10 hover:border-red-500/30 transition-all text-xs text-white/50 hover:text-red-400">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           Sign Out
         </button>
       </div>
     </header>
 
-    <!-- -------- CHAT CANVAS (scrollable workspace) -------- -->
     <main id="chatCanvas" class="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-      <!-- System welcome message (rendered by JS after login) -->
     </main>
 
-    <!-- -------- BOTTOM INPUT PANEL -------- -->
     <footer class="flex-shrink-0 border-t border-white/5 px-5 py-4 glass-card">
       <div class="flex items-center gap-3 max-w-4xl mx-auto">
-        <input id="msgInput"
-               type="text"
-               placeholder="Ask Morgan about your projects..."
-               autocomplete="off"
-               class="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all focus:border-indigo-500/50 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.2)]"
-               onkeydown="if(event.key==='Enter'){event.preventDefault();submitUserMessage();}">
+        <input id="msgInput" type="text" placeholder="Ask Morgan about your projects..." autocomplete="off"
+          class="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-sm outline-none transition-all focus:border-indigo-500/50 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.2)]"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();submitUserMessage();}">
 
-        <button id="sendBtn"
-                onclick="submitUserMessage()"
-                class="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg shadow-indigo-500/25 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
+        <button id="sendBtn" onclick="submitUserMessage()"
+          class="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg shadow-indigo-500/25 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
           <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
           </svg>
         </button>
       </div>
@@ -231,16 +257,13 @@
     </footer>
   </div>
 
-  <!-- ================================================================
-       3. JAVASCRIPT STATE ENGINE
-       ================================================================ -->
   <script>
     // ---------------------------------------------------------------
     // Global auth state
     // ---------------------------------------------------------------
     let SESSION_TOKEN = null;   // user_id returned by /api/auth/login
-    let SESSION_NAME  = null;
-    let SESSION_ROLE  = null;
+    let SESSION_NAME = null;
+    let SESSION_ROLE = null;
 
     // ---------------------------------------------------------------
     // DOM shortcuts
@@ -262,9 +285,9 @@
     function getRoleBadgeClasses(role) {
       const r = (role || '').toLowerCase();
       if (r === 'electrical') return 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
-      if (r === 'plumbing')   return 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30';
-      if (r === 'gc_owner')   return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
-      if (r === 'admin')      return 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
+      if (r === 'plumbing') return 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30';
+      if (r === 'gc_owner') return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+      if (r === 'admin') return 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
       return 'bg-gray-500/20 text-gray-300 border border-gray-500/30';
     }
 
@@ -328,6 +351,9 @@
       canvas.scrollTop = canvas.scrollHeight;
     }
 
+    // ---------------------------------------------------------------
+    // Hide Typing
+    // ---------------------------------------------------------------
     function hideTyping() {
       const el = $('typingIndicator');
       if (el) el.remove();
@@ -342,15 +368,14 @@
     }
 
     // ---------------------------------------------------------------
-    // 1. executeLogin()
+    // 1. executeLogin() -> Pointing to Port 8080
     // ---------------------------------------------------------------
     async function executeLogin() {
-      // Clear previous error
       const errBox = $('loginError');
       errBox.classList.add('hidden');
       errBox.textContent = '';
 
-      const userId   = $('loginUserId').value.trim();
+      const userId = $('loginUserId').value.trim();
       const password = $('loginPassword').value;
 
       if (!userId || !password) {
@@ -359,12 +384,12 @@
         return;
       }
 
-      // Disable button during request
       $('loginBtn').disabled = true;
       $('loginBtn').textContent = 'Verifying...';
 
       try {
-        const resp = await fetch('/api/auth/login', {
+        // CHANGED: Pointing to Port 8080
+        const resp = await fetch('http://127.0.0.1:8080/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: userId, password: password })
@@ -377,24 +402,20 @@
 
         const data = await resp.json();
 
-        // Save session state
         SESSION_TOKEN = data.token;           // user_id
-        SESSION_NAME  = data.name  || data.user_name || userId;
-        SESSION_ROLE  = data.role  || data.user_role || 'Unknown';
+        SESSION_NAME = data.name || data.user_name || userId;
+        SESSION_ROLE = data.role || data.user_role || 'Unknown';
 
-        // Populate header
         $('headerUserName').textContent = SESSION_NAME;
         const badge = $('headerRoleBadge');
         badge.textContent = SESSION_ROLE.toUpperCase();
         badge.className = `px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${getRoleBadgeClasses(SESSION_ROLE)}`;
 
-        // Hide login modal, reveal dashboard
         $('loginModal').style.display = 'none';
         const dash = $('dashboard');
         dash.style.opacity = '1';
         dash.style.pointerEvents = 'auto';
 
-        // Welcome message
         addBubble(
           `Session authenticated. Welcome, ${SESSION_NAME}.\n` +
           `Your active discipline is "${SESSION_ROLE}". ` +
@@ -419,17 +440,15 @@
     // ---------------------------------------------------------------
     function triggerLogout() {
       SESSION_TOKEN = null;
-      SESSION_NAME  = null;
-      SESSION_ROLE  = null;
+      SESSION_NAME = null;
+      SESSION_ROLE = null;
 
-      // Reset UI
       $('chatCanvas').innerHTML = '';
       $('loginUserId').value = '';
       $('loginPassword').value = '';
       $('headerUserName').textContent = '';
       $('headerRoleBadge').textContent = '';
 
-      // Show login modal, hide dashboard
       $('loginModal').style.display = 'flex';
       $('dashboard').style.opacity = '0';
       $('dashboard').style.pointerEvents = 'none';
@@ -438,7 +457,7 @@
     }
 
     // ---------------------------------------------------------------
-    // 3. submitUserMessage()
+    // 3. submitUserMessage() -> Pointing to Port 8080
     // ---------------------------------------------------------------
     async function submitUserMessage() {
       const input = $('msgInput');
@@ -448,14 +467,12 @@
       input.value = '';
       setSendState(true);
 
-      // Render user bubble
       addBubble(msg, 'user');
-
-      // Show typing indicator
       showTyping();
 
       try {
-        const resp = await fetch('/api/chat', {
+        // CHANGED: Pointing to Port 8080
+        const resp = await fetch('http://127.0.0.1:8080/api/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -485,12 +502,10 @@
       }
     }
 
-    // ---------------------------------------------------------------
-    // Auto-focus on page load
-    // ---------------------------------------------------------------
     window.addEventListener('DOMContentLoaded', () => {
       $('loginUserId').focus();
     });
   </script>
 </body>
+
 </html>
